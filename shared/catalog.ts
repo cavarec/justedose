@@ -1,5 +1,5 @@
 import raw from './products.json';
-import type { CatalogProduct } from './types';
+import type { CatalogProduct, DoseTable } from './types';
 
 export const CATALOG: CatalogProduct[] = (raw.products as CatalogProduct[]).map((p) => ({ ...p }));
 
@@ -25,4 +25,9 @@ export function searchCatalog(query: string, products: CatalogProduct[] = CATALO
 
 export function productLabel(p: { brand: string; name: string }): string {
   return `${p.brand} ${p.name}`.trim();
+}
+
+/** Tableau de dosage du fabricant pour cette lessive, s'il existe (les doses ne dépendent pas de la taille du paquet). */
+export function doseTableFor(product: { id: string }): DoseTable | undefined {
+  return CATALOG.find((c) => c.id === product.id)?.dosing;
 }

@@ -30,6 +30,28 @@ for (const [i, p] of products.entries()) {
   if (p.verified === true && (!p.sourceUrl || !/^\d{4}-\d{2}-\d{2}$/.test(p.checkedAt ?? ''))) {
     errors.push(`${where}: verified exige sourceUrl et checkedAt (AAAA-MM-JJ)`);
   }
+  if (p.dosing !== undefined) {
+    const t = p.dosing;
+    const okNum = (n) => typeof n === 'number' && n > 0;
+    if (p.type === 'capsules') errors.push(`${where}: dosing n'a pas de sens pour des capsules`);
+    if (!p.dosingSourceUrl || !/^\d{4}-\d{2}-\d{2}$/.test(p.dosingCheckedAt ?? '')) errors.push(`${where}: dosing exige dosingSourceUrl et dosingCheckedAt`);
+    if (!Array.isArray(t.bands) || t.bands.length === 0) errors.push(`${where}: dosing.bands manquant`);
+    else {
+      let prevMax = 0;
+      for (const [j, b] of t.bands.entries()) {
+        const w = `${where} bands[${j}]`;
+        if (!(b.minKg > prevMax - 1 && b.maxKg >= b.minKg)) errors.push(`${w}: tranches de charge incohérentes`);
+        prevMax = b.maxKg;
+        for (const c of ['soft', 'hard']) {
+          if (!okNum(b[c]?.light) || !okNum(b[c]?.heavy)) errors.push(`${w}: ${c}.light/heavy doivent être des nombres > 0`);
+          else if (b[c].heavy < b[c].light) errors.push(`${w}: ${c}.heavy < ${c}.light`);
+        }
+        if (okNum(b.soft?.light) && okNum(b.hard?.light) && (b.hard.light < b.soft.light || b.hard.heavy < b.soft.heavy)) errors.push(`${w}: l'eau dure ne peut pas demander moins que l'eau douce`);
+        if (j > 0 && okNum(b.soft?.light) && b.soft.light < t.bands[j - 1].soft.light) errors.push(`${w}: la dose doit croître avec la charge`);
+      }
+    }
+    if (t.overflow && !(okNum(t.overflow.addDose) && t.overflow.upToKg > (t.bands.at(-1)?.maxKg ?? 0))) errors.push(`${where}: dosing.overflow invalide`);
+  }
   if (p.type === 'capsules' && p.packSize !== p.packWashes) errors.push(`${where}: capsules → packWashes doit égaler packSize`);
   if (typeof p.verified !== 'boolean') errors.push(`${where}: verified doit être un booléen`);
 }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { computeDose, hardnessFactor, loadFactor, referenceDose } from './dosing';
-import { CATALOG, searchCatalog } from './catalog';
+import { computeDose, hardnessFactor, loadFactor, referenceDose, tableDose } from './dosing';
+import { CATALOG, doseTableFor, searchCatalog } from './catalog';
 import { categoryFromHardness, lookupWater } from './water';
 import type { Product } from './types';
 
@@ -18,7 +18,7 @@ describe('computeDose', () => {
 
   it('réduit la dose pour peu de linge, peu sale, eau douce', () => {
     const r = computeDose({ product: ariel, weightKg: 3, soil: 'light', hardnessF: 8, machineKg: 8 });
-    expect(r.dose).toBeLessThan(30);
+    expect(r.dose).toBeLessThanOrEqual(35); // plancher : 70 % de la dose de référence
     expect(r.savedDose).toBeGreaterThan(20);
     expect(r.savedEur).toBeGreaterThan(0);
   });
@@ -56,12 +56,102 @@ describe('computeDose', () => {
     expect(big.dose).toBeGreaterThanOrEqual(2);
   });
 
-  it('borne la dose entre 40 % et 200 % de la référence', () => {
+  it('borne la dose entre 70 % et 200 % de la référence', () => {
     const p: Product = { ...ariel };
     const lo = computeDose({ product: p, weightKg: 2, soil: 'light', hardnessF: 3, machineKg: 8 });
     const hi = computeDose({ product: p, weightKg: 8, soil: 'heavy', hardnessF: 60, machineKg: 8 });
-    expect(lo.dose).toBeGreaterThanOrEqual(20);
+    expect(lo.dose).toBeGreaterThanOrEqual(35);
     expect(hi.dose).toBeLessThanOrEqual(100);
+  });
+});
+
+describe('tableau de dosage du fabricant (Le Chat Excellence)', () => {
+  const lechat = CATALOG.find((p) => p.id === 'le-chat-excellence-liquide')!;
+  const table = doseTableFor(lechat)!;
+  const dose = (kg: number, soil: 'light' | 'normal' | 'heavy', h: number, machineKg = 8) =>
+    computeDose({ product: lechat as unknown as Product, weightKg: kg, soil, hardnessF: h, machineKg });
+
+  it('existe et sert de base de calcul', () => {
+    expect(table.bands).toHaveLength(2);
+    expect(dose(5, 'light', 10).basis).toBe('table');
+  });
+
+  it("reprend le tableau tel quel dans chaque tranche, sans dépasser sa dose maximale", () => {
+    for (const kg of [4, 4.5, 5]) expect(tableDose(table, kg, 'heavy', 10)).toBe(70);
+    for (const kg of [6, 7, 8]) expect(tableDose(table, kg, 'heavy', 10)).toBe(90);
+    expect(computeDose({ product: lechat as unknown as Product, weightKg: 8, soil: 'heavy', hardnessF: 10, machineKg: 8 }).dose).toBe(90);
+  });
+
+  it('passe progressivement d\'une tranche à l\'autre (5 → 6 kg) et diminue sous 4 kg', () => {
+    expect(tableDose(table, 5.5, 'light', 10)).toBeCloseTo(57.5);
+    expect(tableDose(table, 3, 'light', 10)).toBeLessThan(45);
+    expect(tableDose(table, 3, 'light', 10)).toBeGreaterThan(25);
+  });
+
+  it("restitue les valeurs du tableau aux centres des tranches (eau douce/moyenne)", () => {
+    expect(tableDose(table, 4.5, 'light', 10)).toBe(45);
+    expect(tableDose(table, 4.5, 'heavy', 10)).toBe(70);
+    expect(tableDose(table, 7, 'light', 10)).toBe(70);
+    expect(tableDose(table, 7, 'heavy', 10)).toBe(90);
+  });
+
+  it('restitue les valeurs du tableau en eau dure (≥ 35 °f)', () => {
+    expect(tableDose(table, 4.5, 'light', 40)).toBe(70);
+    expect(tableDose(table, 4.5, 'heavy', 40)).toBe(90);
+    expect(tableDose(table, 7, 'light', 40)).toBe(90);
+    expect(tableDose(table, 7, 'heavy', 40)).toBe(140);
+  });
+
+  it('ajoute 50 mL pour 9-10 kg', () => {
+    expect(tableDose(table, 9.5, 'heavy', 10)).toBe(140);
+    expect(tableDose(table, 9.5, 'light', 40)).toBe(140);
+  });
+
+  it('« normal » est entre « peu sale » et « très sale » ; la transition de dureté est progressive', () => {
+    expect(tableDose(table, 7, 'normal', 10)).toBe(80);
+    const mid = tableDose(table, 7, 'light', 30);
+    expect(mid).toBeGreaterThan(70);
+    expect(mid).toBeLessThan(90);
+  });
+
+  it("n'est jamais décroissante avec la charge, la salissure ni la dureté", () => {
+    for (const soil of ['light', 'normal', 'heavy'] as const) {
+      for (const h of [5, 20, 30, 40]) {
+        let prev = 0;
+        for (let kg = 2; kg <= 10; kg += 0.5) {
+          const v = tableDose(table, kg, soil, h);
+          expect(v).toBeGreaterThanOrEqual(prev);
+          prev = v;
+        }
+      }
+    }
+    expect(tableDose(table, 6, 'light', 10)).toBeLessThanOrEqual(tableDose(table, 6, 'heavy', 10));
+    expect(tableDose(table, 6, 'normal', 10)).toBeLessThanOrEqual(tableDose(table, 6, 'normal', 40));
+  });
+
+  it("calcule l'économie contre la dose du fabricant pour un tambour plein (8 kg, normal, eau moyenne = 80 mL)", () => {
+    const r = dose(4, 'light', 10, 8);
+    expect(r.baselineDose).toBe(80);
+    expect(r.savedDose).toBe(r.baselineDose - r.dose);
+    expect(r.savedDose).toBeGreaterThan(30);
+  });
+
+  it("pas d'économie fictive : charge pleine très sale en eau dure → dose pleine", () => {
+    expect(dose(8, 'heavy', 40, 8).savedDose).toBe(0);
+  });
+
+  it('une lessive sans tableau reste en modèle générique', () => {
+    expect(computeDose({ product: ariel, weightKg: 5, soil: 'normal', hardnessF: 22, machineKg: 8 }).basis).toBe('model');
+  });
+});
+
+describe('dureté : coefficient recalé', () => {
+  it('suit les repères connus', () => {
+    expect(hardnessFactor(5)).toBe(0.8);
+    expect(hardnessFactor(22)).toBe(1);
+    expect(hardnessFactor(30)).toBeCloseTo(1.2);
+    expect(hardnessFactor(45)).toBeCloseTo(1.5);
+    expect(hardnessFactor(80)).toBeCloseTo(1.5);
   });
 });
 

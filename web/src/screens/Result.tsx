@@ -65,7 +65,10 @@ export function Result({
 
       <ul className="animate-rise my-5 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
         <CheckRow title="Adaptée à votre eau" detail={`Eau ${HARDNESS_LABEL[water.category]} · ${water.hardnessF} °f`} />
-        <CheckRow title="Adaptée à votre lessive" detail={productLabel(product)} />
+        <CheckRow
+          title="Adaptée à votre lessive"
+          detail={`${productLabel(product)}${result.basis === 'table' ? ' · tableau du fabricant' : ''}`}
+        />
         <CheckRow
           title="Adaptée à votre charge"
           detail={`${input.weightKg} kg · ${SOIL_LABEL[input.soil].toLowerCase()} · lave-linge ${machineKg} kg`}
@@ -101,8 +104,11 @@ export function Result({
       </Card>
 
       <Muted className="mt-4">
-        Économie calculée par rapport à la dose standard de l'emballage pour un tambour plein. Estimation indicative : en cas de
-        doute, suivez les indications de votre lessive.
+        Économie calculée par rapport à la dose standard de l'emballage pour un tambour plein.{' '}
+        {result.basis === 'table'
+          ? "Dose lue dans le tableau de dosage du fabricant, ajustée à votre charge."
+          : "Dose estimée par un modèle générique : si votre emballage comporte un tableau de dosage, c'est lui qui fait foi."}{' '}
+        En cas de doute, suivez les indications de votre lessive.
         {!product.verified && ' Contenance et nombre de lavages de cette lessive ne sont pas confirmés (modifiables dans Réglages).'}
       </Muted>
 

@@ -33,7 +33,28 @@ export interface Product {
  * (voir sourceUrl / checkedAt). Le prix, qui varie selon l'enseigne, n'est PAS fourni :
  * l'utilisateur saisit ce qu'il a payé.
  */
+/**
+ * Tableau de dosage publié par le fabricant : dose (mL ou g) par tranche de charge, selon la
+ * salissure (peu sale / très sale) et la dureté (douce-moyenne / dure).
+ */
+export interface DoseTable {
+  /** Tranches de charge, de la plus légère à la plus lourde. */
+  bands: Array<{
+    minKg: number;
+    maxKg: number;
+    soft: { light: number; heavy: number };
+    hard: { light: number; heavy: number };
+  }>;
+  /** Au-delà de la dernière tranche, jusqu'à `upToKg` : dose de la dernière tranche + `addDose`. */
+  overflow?: { upToKg: number; addDose: number };
+}
+
 export interface CatalogProduct extends Omit<Product, 'packPriceEur'> {
+  /** Tableau de dosage du fabricant, quand il a pu être relevé (sinon : modèle générique). */
+  dosing?: DoseTable;
+  /** Page où le tableau a été relevé, et date (AAAA-MM-JJ). */
+  dosingSourceUrl?: string;
+  dosingCheckedAt?: string;
   /** Prix indicatif, s'il est sourcé. Absent = à saisir par l'utilisateur. */
   packPriceEur?: number;
   ean?: string;
@@ -95,6 +116,8 @@ export interface DoseResult {
   savedEur: number;
   /** Économie convertie en « mL équivalents » pour les statistiques. */
   savedMl: number;
+  /** D'où vient la dose : tableau du fabricant, ou modèle générique de JusteDose. */
+  basis: 'table' | 'model';
 }
 
 export interface Cycle {

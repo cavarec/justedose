@@ -46,18 +46,24 @@ Vérifications : `npm test` · `npm run typecheck` · `npm run validate:products
 
 ## Comment la dose est calculée
 
+**1. Tableau du fabricant (quand il a été relevé)** — `dosing` dans [`shared/products.json`](shared/products.json) : dose (mL ou g) par tranche de charge, salissure (peu sale / très sale) et dureté (douce-moyenne / dure). La dose du tableau est reprise telle quelle dans chaque tranche, avec une transition progressive entre deux tranches ; « normal » = milieu de « peu sale » et « très sale » ; passage progressif à la colonne « dure » entre 25 et 35 °f (seuil exact du fabricant non indiqué : hypothèse à 30 °f). Économie = dose du tableau pour un tambour plein, linge normal, eau moyenne − dose recommandée. Aujourd'hui : **Le Chat Excellence liquide** uniquement (source : fiche Auchan, 12/10/2026).
+
+**2. Modèle générique (tous les autres produits)** :
+
 ```
-dose = doseDeRéférence × facteurCharge × facteurSalissure × facteurDureté      (bornée à 40 %–200 %)
+dose = doseDeRéférence × facteurCharge × facteurSalissure × facteurDureté      (bornée à 70 %–200 %)
 ```
 
 - **Dose de référence** = contenance ÷ nombre de lavages annoncé sur l'emballage (capsules : 1).
-- **Charge** : `0,35 + 0,65 × kg / 5` — la lessive ne croît pas strictement avec le poids.
-- **Salissure** : peu sale ×0,75 · normal ×1 · très sale ×1,25.
-- **Dureté** (interpolée en °f) : ≤ 5 → ×0,80 · 22 → ×1,00 · ≥ 45 → ×1,25.
+- **Charge** : `0,35 + 0,65 × kg / 5`.
+- **Salissure** : peu sale ×0,85 · normal ×1 · très sale ×1,35.
+- **Dureté** (interpolée en °f) : ≤ 5 → ×0,80 · 22 → ×1,00 · 30 → ×1,20 · ≥ 45 → ×1,50.
 - **Économie** = dose standard de l'emballage pour un *tambour plein* de votre machine − dose recommandée (jamais négative).
 - Capsules : nombre entier (minimum 1). Poudre : grammes.
 
-> ⚠️ **Ces coefficients sont des estimations prudentes, pas des données constructeur.** Ils sont regroupés dans [`shared/dosing.ts`](shared/dosing.ts) pour être affinés (idéalement avec les tableaux de dosage officiels des marques). L'app le rappelle à l'utilisateur.
+> ⚠️ **Le modèle générique est une estimation prudente, pas une donnée constructeur** (l'app l'indique à l'utilisateur). Il a été recalé le 12/10/2026 : le tableau de Le Chat montre que la dose « emballage » (45 mL) correspond chez cette marque au cas le plus léger (peu sale, eau douce), et l'ancien modèle sous-dosait de 30 à 45 %. La convention varie selon les marques (X-tra annonce 45 mL pour du linge « normalement sale »), d'où des coefficients relevés et un plancher à 70 % pour les produits sans tableau. Les coefficients sont regroupés dans [`shared/dosing.ts`](shared/dosing.ts).
+
+**Ajouter le tableau d'un produit** : relever celui de l'emballage (ou de la fiche du fabricant) et l'ajouter dans `products.json` avec `dosingSourceUrl` et `dosingCheckedAt` ; `npm run validate:products` vérifie la cohérence (la dose croît avec la charge, la salissure et la dureté).
 
 ### Dureté de l'eau : par commune, sources officielles
 
