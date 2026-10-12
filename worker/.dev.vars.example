@@ -1,0 +1,3 @@
+# Copier en `.dev.vars` (ignoré par git) puis remplir avec : npm run vapid (à la racine)
+VAPID_PUBLIC_KEY=
+VAPID_PRIVATE_KEY=

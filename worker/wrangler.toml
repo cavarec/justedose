@@ -1,0 +1,23 @@
+name = "justedose-api"
+main = "src/index.ts"
+compatibility_date = "2025-10-01"
+
+# Envoi des notifications planifiées : le cron tourne toutes les minutes.
+[triggers]
+crons = ["* * * * *"]
+
+[[d1_databases]]
+binding = "DB"
+database_name = "justedose"
+# Remplacer par l'id renvoyé par : npx wrangler d1 create justedose
+database_id = "00000000-0000-0000-0000-000000000000"
+migrations_dir = "migrations"
+
+[vars]
+# Générer une paire de clés : npm run vapid (à la racine)
+VAPID_PUBLIC_KEY = ""
+VAPID_SUBJECT = "mailto:contact@example.com"
+# Origines autorisées (CORS), séparées par des virgules. Ajouter l'URL Cloudflare Pages.
+ALLOWED_ORIGINS = "http://localhost:5173,http://localhost:4173"
+
+# Secret (jamais dans ce fichier) : npx wrangler secret put VAPID_PRIVATE_KEY

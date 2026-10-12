@@ -1,0 +1,59 @@
+@import 'tailwindcss';
+
+/* Le mode sombre suit la classe `dark` posée sur <html> (auto, ou choix manuel dans Réglages). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: ui-rounded, 'SF Pro Rounded', 'Nunito', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+
+  --animate-pop: pop 0.45s cubic-bezier(0.2, 0.9, 0.3, 1.15) both;
+  --animate-rise: rise 0.35s ease-out both;
+
+  @keyframes pop {
+    0% {
+      opacity: 0;
+      transform: scale(0.85);
+    }
+    100% {
+      opacity: 1;
+      transform: scale(1);
+    }
+  }
+  @keyframes rise {
+    0% {
+      opacity: 0;
+      transform: translateY(12px);
+    }
+    100% {
+      opacity: 1;
+      transform: none;
+    }
+  }
+}
+
+html {
+  color-scheme: light;
+  -webkit-tap-highlight-color: transparent;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  @apply bg-slate-50 text-slate-900 antialiased dark:bg-slate-950 dark:text-slate-100;
+  overscroll-behavior-y: none;
+}
+
+/* Les chiffres clés ne « bougent » pas quand ils changent. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

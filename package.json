@@ -1,0 +1,23 @@
+{
+  "name": "justedose",
+  "private": true,
+  "version": "0.1.0",
+  "description": "JusteDose — la bonne dose de lessive, ni plus, ni moins.",
+  "workspaces": ["web", "worker"],
+  "scripts": {
+    "dev:web": "npm run dev -w web",
+    "dev:worker": "npm run dev -w worker",
+    "build": "npm run build -w web",
+    "typecheck": "npm run typecheck -w web && npm run typecheck -w worker",
+    "test": "vitest run",
+    "validate:products": "node scripts/validate-products.mjs",
+    "vapid": "node scripts/generate-vapid.mjs",
+    "smoke": "node scripts/smoke-api.mjs",
+    "db:migrate:local": "npm run db:migrate:local -w worker",
+    "db:migrate:remote": "npm run db:migrate:remote -w worker"
+  },
+  "devDependencies": {
+    "typescript": "^5.9.0",
+    "vitest": "^5.0.3"
+  }
+}

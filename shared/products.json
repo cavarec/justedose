@@ -1,0 +1,12 @@
+{
+  "_comment": "Catalogue de lessives. Pour ajouter une référence : ajouter un objet ci-dessous (id unique), puis `npm run validate:products`. packWashes = nombre de lavages annoncé sur l'emballage (= packSize pour des capsules). Les valeurs ci-dessous sont des valeurs de DÉMONSTRATION (verified: false) : prix et dosages à confirmer avec l'emballage.",
+  "products": [
+    { "id": "ariel-liquide", "brand": "Ariel", "name": "Liquide", "type": "liquid", "packSize": 1500, "packWashes": 30, "packPriceEur": 9.5, "verified": false },
+    { "id": "persil-liquide", "brand": "Persil", "name": "Liquide", "type": "liquid", "packSize": 1650, "packWashes": 33, "packPriceEur": 9.9, "verified": false },
+    { "id": "le-chat-liquide", "brand": "Le Chat", "name": "Liquide", "type": "liquid", "packSize": 1800, "packWashes": 36, "packPriceEur": 6.9, "verified": false },
+    { "id": "xtra-liquide", "brand": "Xtra", "name": "Liquide", "type": "liquid", "packSize": 3000, "packWashes": 60, "packPriceEur": 8.5, "verified": false },
+    { "id": "maison-verte-liquide", "brand": "Maison Verte", "name": "Liquide", "type": "liquid", "packSize": 1500, "packWashes": 30, "packPriceEur": 8.9, "verified": false },
+    { "id": "demo-poudre", "brand": "Démo", "name": "Poudre", "type": "powder", "packSize": 3000, "packWashes": 40, "packPriceEur": 9.0, "verified": false },
+    { "id": "demo-capsules", "brand": "Démo", "name": "Capsules", "type": "capsules", "packSize": 30, "packWashes": 30, "packPriceEur": 9.0, "verified": false }
+  ]
+}
