@@ -19,6 +19,6 @@ migrations_dir = "migrations"
 VAPID_PUBLIC_KEY = "BKgG5izWpQ4eybFV6wR5ssP-hYGRG8azT-Jy0QBWFj-p16oXTXtDP3WWritVNFzhdcqBseJno5Cxy4aoYohGCLk"
 VAPID_SUBJECT = "mailto:rcavarec@gmail.com"
 # Origines autorisées (CORS), séparées par des virgules. Ajouter l'URL Cloudflare Pages.
-ALLOWED_ORIGINS = "https://justedose.pages.dev,http://localhost:5173"
+ALLOWED_ORIGINS = "https://justedose.dosage.workers.dev,http://localhost:5173"
 
 # Secret (jamais dans ce fichier) : npx wrangler secret put VAPID_PRIVATE_KEY
