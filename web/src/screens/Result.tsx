@@ -3,6 +3,7 @@ import { productLabel } from '@shared/catalog';
 import { computeStats } from '@shared/stats';
 import { Button, Card, Header, Muted, Screen, Tagline } from '../components/ui';
 import { IconCheck } from '../components/icons';
+import { DoseGlass } from '../components/DoseGlass';
 import { HARDNESS_LABEL, SOIL_LABEL, fmtDose, fmtEuro, fmtNumber } from '../lib/format';
 import { useStore } from '../lib/store';
 import type { WashInput } from './Home';
@@ -50,13 +51,16 @@ export function Result({
 
       <section
         aria-label="Dose recommandée"
-        className="animate-pop rounded-3xl bg-linear-to-br from-teal-700 to-teal-600 p-6 text-center text-white shadow-md dark:from-teal-900 dark:to-teal-800"
+        className="animate-pop flex items-center justify-center gap-3 rounded-3xl bg-linear-to-br from-teal-700 to-teal-600 p-5 text-white shadow-md dark:from-teal-900 dark:to-teal-800"
       >
-        <p className="text-base font-medium text-teal-50">Dose recommandée</p>
-        <p className="tabular mt-1" aria-label={fmtDose(result.dose, result.unit)}>
-          <span className="text-7xl font-extrabold tracking-tight">{amount}</span>
-          <span className="ml-2 text-3xl font-bold">{unit}</span>
-        </p>
+        <div className="min-w-0 text-center">
+          <p className="text-base font-medium text-teal-50">Dose recommandée</p>
+          <p className="tabular mt-1" aria-label={fmtDose(result.dose, result.unit)}>
+            <span className="text-6xl font-extrabold tracking-tight">{amount}</span>
+            <span className="ml-1.5 text-2xl font-bold">{unit}</span>
+          </p>
+        </div>
+        <DoseGlass dose={result.dose} baselineDose={result.baselineDose} unit={result.unit} type={product.type} />
       </section>
 
       <ul className="animate-rise my-5 flex flex-col gap-4 rounded-3xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
