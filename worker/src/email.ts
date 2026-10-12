@@ -6,13 +6,39 @@ function fromAddress(v: string): string {
   return (m ? m[1] : v).trim();
 }
 
+/** Un envoi réel est configuré : Cloudflare Email Service (domaine à vous) ou SMTP (ex. Gmail). */
+export function emailConfigured(env: Bindings): boolean {
+  return !!(env.EMAIL && env.EMAIL_FROM) || !!(env.SMTP_USER && env.SMTP_PASSWORD);
+}
+
 export function emailEnabled(env: Bindings): boolean {
-  return !!(env.EMAIL && env.EMAIL_FROM) || env.DEV_ECHO_CODE === '1';
+  return emailConfigured(env) || env.DEV_ECHO_CODE === '1';
+}
+
+/** SMTP en TLS direct (port 465), via les sockets TCP de Workers. Chargé à la demande : inutile hors Workers. */
+async function sendViaSmtp(env: Bindings, to: string, subject: string, text: string, html: string): Promise<void> {
+  const { WorkerMailer } = await import('worker-mailer');
+  const mailer = await WorkerMailer.connect({
+    host: env.SMTP_HOST || 'smtp.gmail.com',
+    port: 465,
+    secure: true,
+    authType: 'plain',
+    credentials: { username: env.SMTP_USER!, password: env.SMTP_PASSWORD! },
+  });
+  try {
+    await mailer.send({ from: { name: 'JusteDose', email: env.SMTP_USER! }, to: { email: to }, subject, text, html });
+  } finally {
+    await mailer.close().catch(() => undefined);
+  }
 }
 
 export async function sendEmail(env: Bindings, to: string, subject: string, text: string, html: string): Promise<void> {
-  if (!env.EMAIL || !env.EMAIL_FROM) throw new Error('email_not_configured');
-  await env.EMAIL.send({ to, from: { email: fromAddress(env.EMAIL_FROM), name: 'JusteDose' }, subject, text, html });
+  if (env.EMAIL && env.EMAIL_FROM) {
+    await env.EMAIL.send({ to, from: { email: fromAddress(env.EMAIL_FROM), name: 'JusteDose' }, subject, text, html });
+    return;
+  }
+  if (env.SMTP_USER && env.SMTP_PASSWORD) return sendViaSmtp(env, to, subject, text, html);
+  throw new Error('email_not_configured');
 }
 
 const shell = (inner: string) =>

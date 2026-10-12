@@ -109,7 +109,15 @@ Projet Pages relié au dépôt : racine `/`, commande de build `npm ci && npm ru
 
 Réglages → **Sécuriser mon compte par email** : l'app envoie un **code à 6 chiffres** (valable 10 min, 5 essais, 3 demandes/heure/adresse) à saisir dans l'app. Sur un nouvel appareil : **J'ai déjà un compte** → même procédure, et le profil + l'historique reviennent. On utilise un code plutôt qu'un lien car, sur iPhone, un lien s'ouvre dans Safari et non dans la PWA installée (stockages séparés). Seul le hash du code est stocké ; la réponse ne révèle jamais si une adresse a un compte.
 
-**Activation** — l'envoi passe par [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) et exige **un domaine à vous** validé pour l'envoi (impossible depuis `workers.dev`) :
+**Activation, option A — un compte Gmail (sans domaine)** : l'envoi passe par SMTP (`smtp.gmail.com`, port 465) via [worker-mailer](https://github.com/zou-yu/worker-mailer).
+
+1. Sur le compte Gmail : activer la validation en deux étapes, puis créer un **mot de passe d'application** (myaccount.google.com/apppasswords).
+2. Dans `worker/wrangler.toml` : `compatibility_flags = ["nodejs_compat"]` et, dans `[vars]`, `SMTP_USER = "vous@gmail.com"`.
+3. `cd worker`, `npx wrangler secret put SMTP_PASSWORD` (coller les 16 caractères), puis `npx wrangler deploy`.
+
+Limites : les emails partent de *votre* adresse Gmail (environ 500 par jour au maximum) ; si Google bloque la connexion, un message de sécurité arrive dans la boîte Gmail. Convient à un usage personnel ou à un petit cercle ; pour un public plus large, préférer l'option B.
+
+**Activation, option B — domaine à vous** : l'envoi passe par [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) et exige **un domaine à vous** validé pour l'envoi (impossible depuis `workers.dev`) :
 
 ```bash
 cd worker

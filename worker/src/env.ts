@@ -14,6 +14,12 @@ export interface Bindings {
   EMAIL?: EmailSender;
   /** Expéditeur, sur un domaine validé dans Email Service (ex. « JusteDose <connexion@exemple.fr> » → connexion@exemple.fr). */
   EMAIL_FROM?: string;
+  /** Envoi par SMTP (ex. un compte Gmail) : adresse du compte. Variable, pas secrète. */
+  SMTP_USER?: string;
+  /** Secret : `wrangler secret put SMTP_PASSWORD` (pour Gmail : un « mot de passe d'application », pas le mot de passe du compte). */
+  SMTP_PASSWORD?: string;
+  /** Serveur SMTP (défaut : smtp.gmail.com, port 465 en TLS). */
+  SMTP_HOST?: string;
   /** Local uniquement (.dev.vars) : « 1 » renvoie le code dans la réponse au lieu d'envoyer un email. */
   DEV_ECHO_CODE?: string;
 }

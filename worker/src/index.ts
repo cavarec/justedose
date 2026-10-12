@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Cycle, Profile } from '../../shared/types';
 import type { Bindings, Variables } from './env';
-import { alreadyLinkedEmail, codeEmail, emailEnabled, sendEmail } from './email';
+import { alreadyLinkedEmail, codeEmail, emailConfigured, emailEnabled, sendEmail } from './email';
 import { sendDueNotifications } from './push';
 import { parseCycle, parseEmail, parseProfile, parseSubscription } from './validate';
 import { cachedWater } from './water';
@@ -299,7 +299,7 @@ app.post('/api/auth/email/request', async (c) => {
   }
 
   if (mail) {
-    if (c.env.DEV_ECHO_CODE === '1' && !c.env.EMAIL) return c.json(code ? { ok: true, devCode: code } : { ok: true });
+    if (c.env.DEV_ECHO_CODE === '1' && !emailConfigured(c.env)) return c.json(code ? { ok: true, devCode: code } : { ok: true });
     try {
       await sendEmail(c.env, email, mail.subject, mail.text, mail.html);
     } catch (err) {
