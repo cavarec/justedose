@@ -2,8 +2,10 @@ import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import type { Cycle, Profile } from '../../shared/types';
 import type { Bindings, Variables } from './env';
+import { alreadyLinkedEmail, codeEmail, emailEnabled, sendEmail } from './email';
 import { sendDueNotifications } from './push';
-import { parseCycle, parseProfile, parseSubscription } from './validate';
+import { parseCycle, parseEmail, parseProfile, parseSubscription } from './validate';
+import { cachedWater } from './water';
 
 const app = new Hono<{ Bindings: Bindings; Variables: Variables }>();
 
@@ -29,22 +31,38 @@ async function sha256Hex(s: string): Promise<string> {
   return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-const PUBLIC_PATHS = new Set(['/api/health', '/api/auth/anonymous', '/api/push/key']);
+const PUBLIC_PATHS = new Set([
+  '/api/health',
+  '/api/auth/anonymous',
+  '/api/auth/email/request', // authentification facultative (voir la route)
+  '/api/auth/email/verify', // idem
+  '/api/push/key',
+  '/api/water',
+]);
+
+/** Utilisateur du jeton « Bearer », ou null. Un compte récupéré par email a un jeton par appareil (table sessions). */
+async function userFromRequest(c: { req: { header(n: string): string | undefined }; env: Bindings }): Promise<string | null> {
+  const header = c.req.header('Authorization') ?? '';
+  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
+  if (token.length < 32) return null;
+  const hash = await sha256Hex(token);
+  const row = await c.env.DB.prepare(
+    'SELECT id AS user_id FROM users WHERE token_hash = ?1 UNION SELECT user_id FROM sessions WHERE token_hash = ?1',
+  )
+    .bind(hash)
+    .first<{ user_id: string }>();
+  return row?.user_id ?? null;
+}
 
 app.use('/api/*', async (c, next) => {
   if (PUBLIC_PATHS.has(c.req.path) || c.req.method === 'OPTIONS') return next();
-  const header = c.req.header('Authorization') ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7).trim() : '';
-  if (token.length < 32) return c.json({ error: 'unauthorized' }, 401);
-  const row = await c.env.DB.prepare('SELECT id FROM users WHERE token_hash = ?1')
-    .bind(await sha256Hex(token))
-    .first<{ id: string }>();
-  if (!row) return c.json({ error: 'unauthorized' }, 401);
-  c.set('userId', row.id);
+  const userId = await userFromRequest(c);
+  if (!userId) return c.json({ error: 'unauthorized' }, 401);
+  c.set('userId', userId);
   return next();
 });
 
-app.get('/api/health', (c) => c.json({ ok: true }));
+app.get('/api/health', (c) => c.json({ ok: true, emailLogin: emailEnabled(c.env) }));
 
 /** Crée un compte anonyme. Le jeton n'est renvoyé qu'une fois ; seul son hash est conservé. */
 app.post('/api/auth/anonymous', async (c) => {
@@ -92,14 +110,28 @@ const toCycle = (r: CycleRow): Cycle => ({
 app.get('/api/me', async (c) => {
   const userId = c.get('userId');
   const p = await c.env.DB.prepare(
-    'SELECT postal_code, hardness_f, hardness_category, machine_kg, product_json FROM profiles WHERE user_id = ?1',
+    'SELECT postal_code, hardness_f, hardness_category, commune, water_source, machine_kg, product_json FROM profiles WHERE user_id = ?1',
   )
     .bind(userId)
-    .first<{ postal_code: string; hardness_f: number; hardness_category: Profile['water']['category']; machine_kg: number; product_json: string }>();
+    .first<{
+      postal_code: string;
+      hardness_f: number;
+      hardness_category: Profile['water']['category'];
+      commune: string | null;
+      water_source: NonNullable<Profile['water']['source']> | null;
+      machine_kg: number;
+      product_json: string;
+    }>();
 
   const profile: Profile | null = p
     ? {
-        water: { postalCode: p.postal_code, hardnessF: p.hardness_f, category: p.hardness_category },
+        water: {
+          postalCode: p.postal_code,
+          hardnessF: p.hardness_f,
+          category: p.hardness_category,
+          ...(p.commune ? { commune: p.commune } : {}),
+          ...(p.water_source ? { source: p.water_source } : {}),
+        },
         machineKg: p.machine_kg,
         product: JSON.parse(p.product_json),
       }
@@ -113,18 +145,20 @@ app.get('/api/me', async (c) => {
     .bind(userId)
     .all<CycleRow>();
 
-  return c.json({ profile, cycles: results.map(toCycle) });
+  const user = await c.env.DB.prepare('SELECT email FROM users WHERE id = ?1').bind(userId).first<{ email: string | null }>();
+  return c.json({ profile, cycles: results.map(toCycle), email: user?.email ?? null });
 });
 
 app.put('/api/profile', async (c) => {
   const profile = parseProfile(await c.req.json().catch(() => null));
   if (!profile) return c.json({ error: 'invalid_profile' }, 400);
   await c.env.DB.prepare(
-    `INSERT INTO profiles (user_id, postal_code, hardness_f, hardness_category, machine_kg, product_json, updated_at)
-     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
+    `INSERT INTO profiles (user_id, postal_code, hardness_f, hardness_category, commune, water_source, machine_kg, product_json, updated_at)
+     VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
      ON CONFLICT(user_id) DO UPDATE SET
        postal_code = excluded.postal_code, hardness_f = excluded.hardness_f,
-       hardness_category = excluded.hardness_category, machine_kg = excluded.machine_kg,
+       hardness_category = excluded.hardness_category, commune = excluded.commune,
+       water_source = excluded.water_source, machine_kg = excluded.machine_kg,
        product_json = excluded.product_json, updated_at = excluded.updated_at`,
   )
     .bind(
@@ -132,6 +166,8 @@ app.put('/api/profile', async (c) => {
       profile.water.postalCode,
       profile.water.hardnessF,
       profile.water.category,
+      profile.water.commune ?? null,
+      profile.water.source ?? null,
       profile.machineKg,
       JSON.stringify(profile.product),
       Date.now(),
@@ -184,6 +220,144 @@ app.post('/api/cycles', async (c) => {
     );
   }
   return c.json({ ok: true, notifications: planned.map((n) => n.at) }, 201);
+});
+
+// ---------------------------------------------------------------- Dureté de l'eau (par commune)
+/** Code postal → communes + dureté mesurée (données officielles, mises en cache 30 jours). */
+app.get('/api/water', async (c) => {
+  const postalCode = c.req.query('postalCode') ?? '';
+  if (!/^\d{5}$/.test(postalCode)) return c.json({ error: 'invalid_postal_code' }, 400);
+  const result = await cachedWater(c.env.DB, postalCode);
+  if (!result) return c.json({ error: 'unknown_postal_code' }, 404);
+  return c.json(result);
+});
+
+// ---------------------------------------------------------------- Compte : email (code à 6 chiffres)
+const CODE_TTL_MS = 10 * 60_000;
+const CODE_MAX_ATTEMPTS = 5;
+const CODES_PER_HOUR = 3;
+
+function randomCode(): string {
+  const n = new Uint32Array(1);
+  do crypto.getRandomValues(n);
+  while (n[0] >= 4_294_000_000); // tirage sans biais : 4 294 000 000 est un multiple de 10^6
+  return String(n[0] % 1_000_000).padStart(6, '0');
+}
+
+const codeHash = (id: string, code: string) => sha256Hex(`${id}:${code}`);
+
+/**
+ * Demande d'un code.
+ *  - purpose « secure » (connecté) : associer une adresse au compte courant, pour pouvoir le retrouver.
+ *  - purpose « recover » : retrouver le compte lié à l'adresse (nouvel appareil, téléphone perdu).
+ * La réponse est identique que l'adresse soit connue ou non (pas de fuite d'existence de compte).
+ */
+app.post('/api/auth/email/request', async (c) => {
+  if (!emailEnabled(c.env)) return c.json({ error: 'email_not_configured' }, 503);
+  const body = (await c.req.json().catch(() => null)) as { email?: unknown; purpose?: unknown } | null;
+  const email = parseEmail(body?.email);
+  const purpose = body?.purpose;
+  if (!email || (purpose !== 'secure' && purpose !== 'recover')) return c.json({ error: 'invalid_request' }, 400);
+
+  const db = c.env.DB;
+  const now = Date.now();
+  const recent = await db
+    .prepare('SELECT COUNT(*) AS n FROM login_codes WHERE email = ?1 AND created_at > ?2')
+    .bind(email, now - 3_600_000)
+    .first<{ n: number }>();
+  if ((recent?.n ?? 0) >= CODES_PER_HOUR) return c.json({ error: 'too_many_requests' }, 429);
+
+  const owner = await db.prepare('SELECT id FROM users WHERE email = ?1').bind(email).first<{ id: string }>();
+  let userId: string | null = null;
+  let mail: { subject: string; text: string; html: string } | null = null;
+  let code: string | null = null;
+
+  if (purpose === 'secure') {
+    const me = await userFromRequest(c);
+    if (!me) return c.json({ error: 'unauthorized' }, 401);
+    if (owner && owner.id === me) return c.json({ ok: true, alreadyLinked: true }); // déjà fait
+    if (owner) mail = alreadyLinkedEmail();
+    else userId = me;
+  } else if (owner) {
+    userId = owner.id;
+  }
+
+  if (userId) {
+    code = randomCode();
+    const id = crypto.randomUUID();
+    await db
+      .prepare('INSERT INTO login_codes (id, email, purpose, user_id, code_hash, expires_at, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)')
+      .bind(id, email, purpose, userId, await codeHash(id, code), now + CODE_TTL_MS, now)
+      .run();
+    mail = codeEmail(code, purpose);
+  } else if (mail) {
+    // Compte tiers : on enregistre quand même la demande pour que la limite horaire s'applique.
+    await db
+      .prepare('INSERT INTO login_codes (id, email, purpose, user_id, code_hash, expires_at, created_at) VALUES (?1,?2,?3,?4,?5,?6,?7)')
+      .bind(crypto.randomUUID(), email, purpose, owner!.id, 'none', now, now)
+      .run();
+  }
+
+  if (mail) {
+    if (c.env.DEV_ECHO_CODE === '1' && !c.env.EMAIL) return c.json(code ? { ok: true, devCode: code } : { ok: true });
+    try {
+      await sendEmail(c.env, email, mail.subject, mail.text, mail.html);
+    } catch (err) {
+      // On ne révèle pas l'échec (cela dévoilerait qu'un compte existe) : il est visible dans les journaux.
+      console.error('envoi du code impossible', err);
+    }
+  }
+  return c.json({ ok: true });
+});
+
+/** Vérifie le code. « secure » : lie l'adresse au compte courant. « recover » : renvoie un nouveau jeton d'appareil. */
+app.post('/api/auth/email/verify', async (c) => {
+  const body = (await c.req.json().catch(() => null)) as { email?: unknown; code?: unknown; purpose?: unknown } | null;
+  const email = parseEmail(body?.email);
+  const purpose = body?.purpose;
+  const code = typeof body?.code === 'string' ? body.code.replace(/\s/g, '') : '';
+  if (!email || !/^\d{6}$/.test(code) || (purpose !== 'secure' && purpose !== 'recover')) return c.json({ error: 'invalid_request' }, 400);
+
+  const db = c.env.DB;
+  const now = Date.now();
+  const row = await db
+    .prepare(
+      `SELECT id, user_id FROM login_codes
+        WHERE email = ?1 AND purpose = ?2 AND used_at IS NULL AND expires_at > ?3 AND attempts < ?4 AND code_hash != 'none'
+        ORDER BY created_at DESC LIMIT 1`,
+    )
+    .bind(email, purpose, now, CODE_MAX_ATTEMPTS)
+    .first<{ id: string; user_id: string }>();
+  if (!row) return c.json({ error: 'invalid_code' }, 400);
+
+  // Compte l'essai AVANT de comparer : 5 essais maximum par code, même en rafale.
+  const attempt = await db
+    .prepare('UPDATE login_codes SET attempts = attempts + 1 WHERE id = ?1 AND attempts < ?2 RETURNING code_hash')
+    .bind(row.id, CODE_MAX_ATTEMPTS)
+    .first<{ code_hash: string }>();
+  if (!attempt || attempt.code_hash !== (await codeHash(row.id, code))) return c.json({ error: 'invalid_code' }, 400);
+
+  const consumed = await db.prepare('UPDATE login_codes SET used_at = ?2 WHERE id = ?1 AND used_at IS NULL').bind(row.id, now).run();
+  if (!consumed.meta.changes) return c.json({ error: 'invalid_code' }, 400);
+
+  if (purpose === 'secure') {
+    const me = await userFromRequest(c);
+    if (!me || me !== row.user_id) return c.json({ error: 'unauthorized' }, 401);
+    try {
+      await db.prepare('UPDATE users SET email = ?2 WHERE id = ?1').bind(me, email).run();
+    } catch {
+      return c.json({ error: 'email_taken' }, 409);
+    }
+    return c.json({ ok: true, email });
+  }
+
+  const bytes = crypto.getRandomValues(new Uint8Array(32));
+  const token = btoa(String.fromCharCode(...bytes)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+  await db
+    .prepare('INSERT INTO sessions (token_hash, user_id, created_at) VALUES (?1, ?2, ?3)')
+    .bind(await sha256Hex(token), row.user_id, now)
+    .run();
+  return c.json({ ok: true, token, userId: row.user_id });
 });
 
 // ---------------------------------------------------------------- Web Push

@@ -50,12 +50,12 @@ check('profil vide au départ', empty.json?.profile === null && empty.json?.cycl
 const profile = {
   water: { postalCode: '29260', hardnessF: 8, category: 'soft' },
   machineKg: 8,
-  product: { id: 'ariel-liquide', brand: 'Ariel', name: 'Liquide', type: 'liquid', packSize: 1500, packWashes: 30, packPriceEur: 9.5, verified: false },
+  product: { id: 'ariel-original-liquide', brand: 'Ariel', name: 'Original liquide', type: 'liquid', packSize: 1530, packWashes: 34, packPriceEur: 9.5, verified: true },
 };
 check('profil invalide refusé', (await call('PUT', '/api/profile', { token, body: { ...profile, machineKg: -2 } })).status === 400);
 check('profil enregistré', (await call('PUT', '/api/profile', { token, body: profile })).status === 200);
 const me = await call('GET', '/api/me', { token });
-check('profil relu à l\'identique', me.json?.profile?.water.postalCode === '29260' && me.json.profile.product.id === 'ariel-liquide' && me.json.profile.machineKg === 8);
+check('profil relu à l\'identique', me.json?.profile?.water.postalCode === '29260' && me.json.profile.product.id === 'ariel-original-liquide' && me.json.profile.machineKg === 8);
 
 // --- cycle + notifications programmées
 const now = Date.now();

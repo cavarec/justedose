@@ -10,6 +10,7 @@ const SOILS: Soil[] = ['light', 'normal', 'heavy'];
 const TYPES: DetergentType[] = ['liquid', 'powder', 'capsules'];
 const CATEGORIES: HardnessCategory[] = ['soft', 'medium', 'hard'];
 const UNITS = ['mL', 'g', 'capsule'] as const;
+const WATER_SOURCES = ['commune', 'department', 'manual'];
 
 export function parseCycle(x: unknown): Cycle | null {
   if (!isObj(x)) return null;
@@ -53,7 +54,13 @@ export function parseProfile(x: unknown): Profile | null {
   if (!TYPES.includes(p.type as DetergentType)) return null;
   if (!isNum(p.packSize, 1, 100000) || !isNum(p.packWashes, 1, 1000) || !isNum(p.packPriceEur, 0.01, 1000)) return null;
   return {
-    water: { postalCode: w.postalCode, hardnessF: w.hardnessF, category: w.category as HardnessCategory },
+    water: {
+      postalCode: w.postalCode,
+      hardnessF: w.hardnessF,
+      category: w.category as HardnessCategory,
+      commune: isStr(w.commune, 80) ? w.commune : undefined,
+      source: WATER_SOURCES.includes(w.source as never) ? (w.source as 'commune' | 'department' | 'manual') : undefined,
+    },
     machineKg: Math.round(x.machineKg),
     product: {
       id: p.id,
@@ -80,4 +87,13 @@ export function parseSubscription(x: unknown): PushSub | null {
   if (!isStr(x.endpoint, 2000) || !x.endpoint.startsWith('https://')) return null;
   if (!isStr(x.keys.p256dh, 200) || !isStr(x.keys.auth, 100)) return null;
   return { endpoint: x.endpoint, p256dh: x.keys.p256dh, auth: x.keys.auth };
+}
+
+const EMAIL_RE = /^[^\s@]+@[^\s@.]+(\.[^\s@.]+)+$/;
+
+/** Adresse normalisée (minuscules, sans espaces) ou null si invalide. */
+export function parseEmail(x: unknown): string | null {
+  if (typeof x !== 'string') return null;
+  const e = x.trim().toLowerCase();
+  return e.length <= 254 && EMAIL_RE.test(e) ? e : null;
 }

@@ -15,6 +15,8 @@ export type Theme = 'system' | 'light' | 'dark';
 export interface State {
   /** Jeton du compte anonyme (secret, jamais affiché). */
   token: string | null;
+  /** Adresse liée au compte (récupération sur un autre appareil), si elle a été confirmée. */
+  email: string | null;
   profile: Profile | null;
   profileDirty: boolean;
   /** Historique, du plus récent au plus ancien. */
@@ -30,6 +32,7 @@ const KEY = 'justedose:v1';
 
 const initial: State = {
   token: null,
+  email: null,
   profile: null,
   profileDirty: false,
   cycles: [],
@@ -150,6 +153,30 @@ export function getToken(): Promise<string | null> {
   return tokenRequest;
 }
 
+/** Adresse confirmée par le serveur (après vérification du code). */
+export function setEmail(email: string | null) {
+  set({ email });
+}
+
+/**
+ * Bascule cet appareil sur un compte retrouvé par email. Sans perte : le profil du compte
+ * l'emporte (s'il existe), et les lavages déjà présents ici sont fusionnés avec ceux du compte.
+ */
+export async function adoptAccount(token: string, email: string): Promise<void> {
+  const remote = await api.me(token);
+  const known = new Set(remote.cycles.map((c) => c.id));
+  const localOnly = state.cycles.filter((c) => !known.has(c.id));
+  set({
+    token,
+    email,
+    cycles: [...remote.cycles, ...localOnly].sort((a, b) => b.startedAt - a.startedAt),
+    pending: localOnly.map((c) => c.id),
+    profile: remote.profile ?? state.profile,
+    profileDirty: !remote.profile && !!state.profile,
+  });
+  void sync();
+}
+
 let inflight: Promise<void> | null = null;
 
 /** Rattrape le serveur. Sans effet de bord si le réseau est absent : on réessaiera. */
@@ -195,6 +222,7 @@ async function doSync(retryOnUnauthorized: boolean): Promise<void> {
     const patch: Partial<State> = {};
     if (missing.length) patch.cycles = [...state.cycles, ...missing].sort((a, b) => b.startedAt - a.startedAt);
     if (!state.profile && remote.profile) patch.profile = remote.profile;
+    if (remote.email !== state.email) patch.email = remote.email;
     if (Object.keys(patch).length) set(patch);
   } catch (e) {
     if (e instanceof ApiError && e.status === 401 && retryOnUnauthorized) {

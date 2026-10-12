@@ -4,8 +4,9 @@ import { CATALOG, searchCatalog } from './catalog';
 import { categoryFromHardness, lookupWater } from './water';
 import type { Product } from './types';
 
-const ariel = CATALOG.find((p) => p.id === 'ariel-liquide')!;
-const capsules = CATALOG.find((p) => p.type === 'capsules')!;
+// Fixtures figées : les tests de calcul ne dépendent pas du catalogue (dont les valeurs évoluent).
+const ariel: Product = { id: 'fx-liquide', brand: 'Test', name: 'Liquide', type: 'liquid', packSize: 1500, packWashes: 30, packPriceEur: 9.5, verified: true };
+const capsules: Product = { id: 'fx-capsules', brand: 'Test', name: 'Capsules', type: 'capsules', packSize: 30, packWashes: 30, packPriceEur: 9, verified: true };
 
 describe('computeDose', () => {
   it('donne la dose de référence pour 5 kg, normal, eau à 22 °f', () => {
@@ -85,14 +86,22 @@ describe('water', () => {
 });
 
 describe('catalogue', () => {
-  it('contient les 5 lessives de démonstration', () => {
-    for (const id of ['ariel-liquide', 'persil-liquide', 'le-chat-liquide', 'xtra-liquide', 'maison-verte-liquide']) {
-      expect(CATALOG.some((p) => p.id === id)).toBe(true);
+  it('couvre les cinq marques demandées, avec les trois types de lessive', () => {
+    for (const brand of ['Ariel', 'Persil', 'Le Chat', 'X-tra', 'Maison Verte']) {
+      expect(CATALOG.some((p) => p.brand === brand)).toBe(true);
+    }
+    for (const type of ['liquid', 'powder', 'capsules']) expect(CATALOG.some((p) => p.type === type)).toBe(true);
+  });
+  it('chaque référence vérifiée porte sa source et sa date ; aucun prix non sourcé', () => {
+    for (const p of CATALOG) {
+      if (p.verified) expect(p.sourceUrl && /^\d{4}-\d{2}-\d{2}$/.test(p.checkedAt ?? '')).toBeTruthy();
+      if (p.packPriceEur !== undefined) expect(p.sourceUrl && p.checkedAt).toBeTruthy();
     }
   });
   it('recherche sans tenir compte des accents ni de la casse', () => {
-    expect(searchCatalog('démo').length).toBeGreaterThan(0);
-    expect(searchCatalog('LE CHAT')[0].id).toBe('le-chat-liquide');
+    expect(searchCatalog('LE CHAT').every((p) => p.brand === 'Le Chat')).toBe(true);
+    expect(searchCatalog('fraicheur ete').some((p) => p.brand === 'Maison Verte')).toBe(true);
+    expect(searchCatalog('xtra').some((p) => p.brand === 'X-tra')).toBe(true);
     expect(searchCatalog('zzz')).toHaveLength(0);
   });
 });

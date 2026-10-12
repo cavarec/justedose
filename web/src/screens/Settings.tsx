@@ -2,12 +2,14 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { productLabel } from '@shared/catalog';
 import { Button, Card, Chip, Header, Muted, Screen, Tagline } from '../components/ui';
 import { HARDNESS_LABEL } from '../lib/format';
+import { api } from '../lib/api';
 import { disablePush, enablePush, getPushStatus, type PushStatus } from '../lib/push';
 import { deleteEverything, saveProfile, setTheme, useStore, type Theme } from '../lib/store';
 import { PUSH_MESSAGE } from './Cycle';
+import { EmailFlow } from './Account';
 import { MachineStep, ProductStep, WaterStep } from './steps';
 
-type Editing = 'water' | 'product' | 'machine' | null;
+type Editing = 'water' | 'product' | 'machine' | 'secure' | 'recover' | null;
 
 const THEMES: Array<{ value: Theme; label: string }> = [
   { value: 'system', label: 'Auto' },
@@ -41,6 +43,8 @@ const Section = ({ title, children }: { title: string; children: ReactNode }) =>
 export function Settings() {
   const profile = useStore((s) => s.profile);
   const theme = useStore((s) => s.theme);
+  const email = useStore((s) => s.email);
+  const [emailLogin, setEmailLogin] = useState(false);
   const [editing, setEditing] = useState<Editing>(null);
   const [push, setPush] = useState<PushStatus | 'pending'>('pending');
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -48,6 +52,8 @@ export function Settings() {
 
   useEffect(() => {
     void getPushStatus().then(setPush);
+    // La connexion par email n'est proposée que si le serveur sait envoyer des emails.
+    api.health().then((h) => setEmailLogin(h.emailLogin), () => setEmailLogin(false));
   }, []);
 
   if (!profile) return null;
@@ -55,7 +61,13 @@ export function Settings() {
 
   // ------------------------------------------------------------ Édition d'une étape
   if (editing) {
-    const title = { water: 'Votre eau', product: 'Votre lessive', machine: 'Votre lave-linge' }[editing];
+    const title = {
+      water: 'Votre eau',
+      product: 'Votre lessive',
+      machine: 'Votre lave-linge',
+      secure: 'Sécuriser mon compte',
+      recover: 'Retrouver mon compte',
+    }[editing];
     return (
       <Screen withTabs>
         <Header title={title} onBack={done} />
@@ -65,6 +77,7 @@ export function Settings() {
         {editing === 'product' && (
           <ProductStep initial={profile.product} cta="Enregistrer" onSubmit={(product) => (saveProfile({ ...profile, product }), done())} />
         )}
+        {(editing === 'secure' || editing === 'recover') && <EmailFlow purpose={editing} onDone={done} />}
         {editing === 'machine' && (
           <MachineStep initial={profile.machineKg} cta="Enregistrer" onSubmit={(machineKg) => (saveProfile({ ...profile, machineKg }), done())} />
         )}
@@ -99,7 +112,7 @@ export function Settings() {
 
       <Section title="Ma configuration">
         <div className="flex flex-col gap-2">
-          <Row label="Eau" value={`${profile.water.postalCode} · ${HARDNESS_LABEL[profile.water.category]} (≈ ${profile.water.hardnessF} °f)`} onClick={() => setEditing('water')} />
+          <Row label="Eau" value={`${profile.water.commune ?? profile.water.postalCode} · ${HARDNESS_LABEL[profile.water.category]} (≈ ${profile.water.hardnessF} °f)`} onClick={() => setEditing('water')} />
           <Row label="Lessive" value={productLabel(profile.product)} onClick={() => setEditing('product')} />
           <Row label="Lave-linge" value={profile.machineKg >= 10 ? '10 kg et +' : `${profile.machineKg} kg`} onClick={() => setEditing('machine')} />
         </div>
@@ -131,11 +144,31 @@ export function Settings() {
         </div>
       </Section>
 
+      {emailLogin && (
+        <Section title="Mon compte">
+          <Card>
+            <p>
+              {email
+                ? `Compte sécurisé par ${email} : vous pourrez le retrouver sur un autre téléphone.`
+                : 'Votre compte est anonyme : sans email, vos statistiques seraient perdues si vous changez de téléphone.'}
+            </p>
+            {!email && (
+              <Button variant="secondary" className="mt-4 h-14 text-base" onClick={() => setEditing('secure')}>
+                Sécuriser mon compte par email
+              </Button>
+            )}
+            <Button variant="ghost" className="mt-2 h-14 text-base" onClick={() => setEditing('recover')}>
+              J'ai déjà un compte
+            </Button>
+          </Card>
+        </Section>
+      )}
+
       <Section title="Mes données">
         <Card>
           <Muted>
-            Vos lavages sont enregistrés sur un compte anonyme (aucun email, aucune publicité). Vous pouvez tout effacer à tout
-            moment.
+            Vos lavages sont enregistrés sur un compte anonyme{email ? ' lié à votre adresse email' : ' (email facultatif)'}, sans
+            publicité. Vous pouvez tout effacer à tout moment.
           </Muted>
           {!confirmDelete ? (
             <Button variant="secondary" className="mt-4 h-14 text-base" onClick={() => setConfirmDelete(true)}>

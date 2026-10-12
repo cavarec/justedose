@@ -1,9 +1,10 @@
-import { useMemo, useState, type ReactNode } from 'react';
-import type { DetergentType, HardnessCategory, Product, WaterInfo } from '@shared/types';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import type { CatalogProduct, DetergentType, HardnessCategory, Product, WaterInfo, WaterLookup } from '@shared/types';
 import { CATALOG, searchCatalog } from '@shared/catalog';
-import { HARDNESS_OF_CATEGORY, POSTAL_CODE_RE, lookupWater } from '@shared/water';
+import { HARDNESS_OF_CATEGORY, POSTAL_CODE_RE, categoryFromHardness, lookupWater } from '@shared/water';
 import { Button, Card, Chip, Muted, cx } from '../components/ui';
 import { IconCheck, IconScan } from '../components/icons';
+import { api, ApiError } from '../lib/api';
 import { HARDNESS_LABEL, TYPE_LABEL, fmtPack } from '../lib/format';
 
 /* Chaque étape est autonome : elle affiche ses champs et son bouton principal.
@@ -12,7 +13,7 @@ import { HARDNESS_LABEL, TYPE_LABEL, fmtPack } from '../lib/format';
 const StepBody = ({ children }: { children: ReactNode }) => <div className="flex flex-1 flex-col gap-5">{children}</div>;
 const Footer = ({ children }: { children: ReactNode }) => <div className="mt-auto pt-4">{children}</div>;
 
-const inputClass =
+export const inputClass =
   'h-14 w-full rounded-xl border-2 border-slate-300 bg-white px-4 text-lg placeholder:text-slate-400 ' +
   'focus:border-teal-700 focus:outline-none dark:border-slate-700 dark:bg-slate-900 dark:placeholder:text-slate-500 dark:focus:border-teal-400';
 
@@ -20,17 +21,74 @@ const inputClass =
 
 const CATEGORIES: HardnessCategory[] = ['soft', 'medium', 'hard'];
 
+type LookupStatus = 'idle' | 'loading' | 'done' | 'unknown' | 'offline';
+
+const fmtMonth = (iso: string | null) => (iso ? `${iso.slice(5, 7)}/${iso.slice(0, 4)}` : '');
+
 export function WaterStep({ initial, cta, onSubmit }: { initial?: WaterInfo; cta: string; onSubmit: (w: WaterInfo) => void }) {
   const [postal, setPostal] = useState(initial?.postalCode ?? '');
-  // Correction manuelle de la catégorie détectée (ou choix obligatoire si le code est inconnu).
-  const [override, setOverride] = useState<HardnessCategory | null>(
-    initial && lookupWater(initial.postalCode)?.category !== initial.category ? initial.category : null,
-  );
+  const [lookup, setLookup] = useState<WaterLookup | null>(null);
+  const [status, setStatus] = useState<LookupStatus>('idle');
+  const [communeCode, setCommuneCode] = useState<string | null>(null);
+  // Correction manuelle de la catégorie détectée (ou choix obligatoire si rien n'a été trouvé).
+  const [override, setOverride] = useState<HardnessCategory | null>(initial?.source === 'manual' ? initial.category : null);
 
   const complete = POSTAL_CODE_RE.test(postal);
-  const found = complete ? lookupWater(postal) : null;
-  const category = override ?? found?.category ?? null;
-  const hardnessF = category ? (found && category === found.category ? found.hardnessF : HARDNESS_OF_CATEGORY[category]) : null;
+
+  // Dureté mesurée pour la commune : requête dès que le code postal est complet.
+  useEffect(() => {
+    if (!complete) {
+      setLookup(null);
+      setStatus('idle');
+      return;
+    }
+    let cancelled = false;
+    setStatus('loading');
+    api
+      .water(postal)
+      .then((l) => {
+        if (cancelled) return;
+        const withData = l.communes.filter((c) => c.hardnessF !== null);
+        const wanted =
+          withData.find((c) => c.name === initial?.commune && postal === initial?.postalCode) ??
+          withData.find((c) => c.name === l.suggested.commune) ??
+          null;
+        setLookup(l);
+        setCommuneCode(wanted?.code ?? null);
+        setStatus('done');
+      })
+      .catch((e) => {
+        if (cancelled) return;
+        setLookup(null);
+        setCommuneCode(null);
+        setStatus(e instanceof ApiError && e.status === 404 ? 'unknown' : 'offline');
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [postal, complete, initial?.commune, initial?.postalCode]);
+
+  const communesWithData = lookup?.communes.filter((c) => c.hardnessF !== null) ?? [];
+  const chosen = communesWithData.find((c) => c.code === communeCode) ?? null;
+
+  // Valeur détectée : commune mesurée > estimation départementale (serveur ou, hors ligne, locale).
+  const detected: WaterInfo | null = !complete
+    ? null
+    : chosen && chosen.hardnessF !== null
+      ? { postalCode: postal, hardnessF: chosen.hardnessF, category: categoryFromHardness(chosen.hardnessF), commune: chosen.name, source: 'commune' }
+      : lookup && lookup.suggested.source === 'department'
+        ? lookup.suggested
+        : status === 'offline' || status === 'unknown' || (status === 'done' && !lookup?.suggested)
+          ? (() => {
+              const d = lookupWater(postal);
+              return d ? { ...d, source: 'department' as const } : null;
+            })()
+          : null;
+
+  const category = override ?? detected?.category ?? null;
+  const manual = override !== null && override !== detected?.category;
+  const hardnessF = category ? (manual || !detected ? HARDNESS_OF_CATEGORY[category] : detected.hardnessF) : null;
+  const ready = complete && status !== 'loading' && category !== null && hardnessF !== null;
 
   return (
     <StepBody>
@@ -55,33 +113,73 @@ export function WaterStep({ initial, cta, onSubmit }: { initial?: WaterInfo; cta
 
       {complete && (
         <Card className="animate-rise">
-          {found ? (
+          {status === 'loading' ? (
+            <p className="text-lg" role="status">
+              Recherche de la dureté de votre eau…
+            </p>
+          ) : detected ? (
             <p className="text-lg">
-              Eau <strong>{HARDNESS_LABEL[found.category]}</strong> dans votre secteur{' '}
-              <span className="whitespace-nowrap text-slate-600 tabular dark:text-slate-400">(≈ {found.hardnessF} °f)</span>
+              Eau <strong>{HARDNESS_LABEL[detected.category]}</strong>
+              {detected.commune ? ` à ${detected.commune}` : ' dans votre secteur'}{' '}
+              <span className="whitespace-nowrap text-slate-600 tabular dark:text-slate-400">(≈ {detected.hardnessF} °f)</span>
             </p>
           ) : (
-            <p className="text-lg">Code postal non reconnu. Indiquez la dureté de votre eau :</p>
+            <p className="text-lg">Dureté introuvable pour ce code postal. Indiquez la dureté de votre eau :</p>
           )}
-          <div className="mt-4 grid grid-cols-3 gap-2" role="group" aria-label="Dureté de l'eau">
-            {CATEGORIES.map((c) => (
-              <Chip key={c} selected={category === c} onClick={() => setOverride(c)} className="capitalize">
-                {HARDNESS_LABEL[c]}
-              </Chip>
-            ))}
-          </div>
-          <Muted className="mt-3">
-            {found
-              ? "Estimation d'après votre département. Corrigez-la si vous connaissez la dureté de votre eau (indiquée sur votre facture d'eau)."
-              : "La dureté de l'eau est indiquée sur votre facture d'eau ; à défaut, choisissez « moyenne »."}
-          </Muted>
+
+          {status === 'done' && communesWithData.length > 1 && (
+            <div className="mt-4">
+              <p className="mb-2 text-sm font-semibold">Votre commune</p>
+              <div className="flex flex-wrap gap-2" role="group" aria-label="Votre commune">
+                {communesWithData.map((c) => (
+                  <Chip
+                    key={c.code}
+                    selected={c.code === communeCode}
+                    className="min-h-12 px-4 text-base"
+                    onClick={() => {
+                      setCommuneCode(c.code);
+                      setOverride(null);
+                    }}
+                  >
+                    {c.name}
+                  </Chip>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {status !== 'loading' && (
+            <>
+              <div className="mt-4 grid grid-cols-3 gap-2" role="group" aria-label="Dureté de l'eau">
+                {CATEGORIES.map((c) => (
+                  <Chip key={c} selected={category === c} onClick={() => setOverride(c)} className="capitalize">
+                    {HARDNESS_LABEL[c]}
+                  </Chip>
+                ))}
+              </div>
+              <Muted className="mt-3">
+                {detected?.source === 'commune' && chosen
+                  ? `D'après les analyses officielles du contrôle sanitaire de l'eau (dernière : ${fmtMonth(chosen.lastSampleAt)}). Corrigez-la si vous connaissez la dureté de votre eau (indiquée sur votre facture d'eau).`
+                  : detected
+                    ? `${status === 'offline' ? 'Hors connexion : e' : 'Aucune mesure trouvée pour votre commune : e'}stimation d'après votre département. Corrigez-la si vous connaissez la dureté de votre eau (indiquée sur votre facture d'eau).`
+                    : "La dureté de l'eau est indiquée sur votre facture d'eau ; à défaut, choisissez « moyenne »."}
+              </Muted>
+            </>
+          )}
         </Card>
       )}
 
       <Footer>
         <Button
-          disabled={!complete || !category || hardnessF === null}
-          onClick={() => category && hardnessF !== null && onSubmit({ postalCode: postal, hardnessF, category })}
+          disabled={!ready}
+          onClick={() => {
+            if (!ready || !category || hardnessF === null) return;
+            const info: WaterInfo =
+              manual || !detected
+                ? { postalCode: postal, hardnessF, category, source: 'manual' }
+                : { postalCode: postal, hardnessF, category, ...(detected.commune ? { commune: detected.commune } : {}), source: detected.source };
+            onSubmit(info);
+          }}
         >
           {cta}
         </Button>
@@ -101,17 +199,17 @@ interface Draft {
   packWashes: string;
   packPriceEur: string;
   /** Référence catalogue d'origine (null = lessive saisie à la main). */
-  origin: Product | null;
+  origin: CatalogProduct | null;
 }
 
-const toDraft = (p: Product): Draft => ({
+const toDraft = (p: Product | CatalogProduct): Draft => ({
   id: p.id,
   brand: p.brand,
   name: p.name,
   type: p.type,
   packSize: String(p.packSize),
   packWashes: String(p.packWashes),
-  packPriceEur: String(p.packPriceEur).replace('.', ','),
+  packPriceEur: p.packPriceEur === undefined ? '' : String(p.packPriceEur).replace('.', ','),
   origin: CATALOG.find((c) => c.id === p.id) ?? null,
 });
 
@@ -142,7 +240,7 @@ function draftToProduct(d: Draft): Product | null {
   if (![packSize, price, washes].every((n) => Number.isFinite(n) && n > 0)) return null;
 
   const o = d.origin;
-  const unchanged = o && o.packSize === packSize && o.packWashes === washes && o.packPriceEur === price;
+  const unchanged = o && o.packSize === packSize && o.packWashes === washes && (o.packPriceEur === undefined || o.packPriceEur === price);
   return {
     id: d.id,
     brand: d.brand.trim(),
@@ -151,7 +249,8 @@ function draftToProduct(d: Draft): Product | null {
     packSize,
     packWashes: Math.round(washes),
     packPriceEur: price,
-    // Valeurs démo conservées telles quelles = non vérifiées ; saisies ou corrigées par l'utilisateur = vérifiées.
+    // Référence du catalogue inchangée : statut du catalogue (le prix saisi par l'utilisateur n'y change rien).
+    // Valeurs saisies ou corrigées par l'utilisateur à partir de son emballage : vérifiées.
     verified: unchanged ? o.verified : true,
     custom: o ? undefined : true,
   };
@@ -268,9 +367,14 @@ export function ProductStep({ initial, cta, onSubmit }: { initial?: Product; cta
           </div>
         )}
 
+        {draft.origin && draft.origin.packPriceEur === undefined && (
+          <p className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/60 dark:text-amber-100">
+            Le prix varie selon le magasin : indiquez ce que vous avez payé pour que le coût et les économies soient justes.
+          </p>
+        )}
         {draft.origin && !draft.origin.verified && (
           <p className="rounded-xl bg-amber-100 px-3 py-2 text-sm text-amber-950 dark:bg-amber-950/60 dark:text-amber-100">
-            Prix et dosage de démonstration : vérifiez-les avec votre emballage pour un calcul juste.
+            Contenance et nombre de lavages non confirmés : vérifiez-les avec votre emballage.
           </p>
         )}
 

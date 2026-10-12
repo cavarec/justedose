@@ -1,7 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { Product, WaterInfo } from '@shared/types';
 import { Header, Screen, Tagline } from '../components/ui';
-import { saveProfile } from '../lib/store';
+import { api } from '../lib/api';
+import { getState, saveProfile } from '../lib/store';
+import { Button } from '../components/ui';
+import { EmailFlow } from './Account';
 import { MachineStep, ProductStep, WaterStep } from './steps';
 
 const STEPS = [
@@ -14,6 +17,29 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
   const [step, setStep] = useState(0);
   const [water, setWater] = useState<WaterInfo>();
   const [product, setProduct] = useState<Product>();
+  const [recovering, setRecovering] = useState(false);
+  const [emailLogin, setEmailLogin] = useState(false);
+
+  useEffect(() => {
+    api.health().then((h) => setEmailLogin(h.emailLogin), () => setEmailLogin(false));
+  }, []);
+
+  // Nouvel appareil : retrouver son compte évite de tout ressaisir.
+  if (recovering) {
+    return (
+      <Screen>
+        <Header title="Retrouver mon compte" subtitle="Saisissez l'adresse email associée à votre compte." onBack={() => setRecovering(false)} />
+        <EmailFlow
+          purpose="recover"
+          onDone={() => {
+            setRecovering(false);
+            if (getState().profile) onDone();
+          }}
+        />
+        <Tagline />
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -60,6 +86,11 @@ export function Onboarding({ onDone }: { onDone: () => void }) {
         />
       )}
 
+      {step === 0 && emailLogin && (
+        <Button variant="ghost" className="mt-2 h-14 text-base" onClick={() => setRecovering(true)}>
+          J'ai déjà un compte
+        </Button>
+      )}
       <Tagline />
     </Screen>
   );

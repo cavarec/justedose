@@ -19,9 +19,18 @@ for (const [i, p] of products.entries()) {
   if (!p.brand) errors.push(`${where}: brand manquant`);
   if (!p.name) errors.push(`${where}: name manquant`);
   if (!TYPES.has(p.type)) errors.push(`${where}: type invalide (${p.type})`);
-  for (const k of ['packSize', 'packWashes', 'packPriceEur']) {
+  for (const k of ['packSize', 'packWashes']) {
     if (typeof p[k] !== 'number' || !(p[k] > 0)) errors.push(`${where}: ${k} doit être un nombre > 0`);
   }
+  // Le prix est facultatif (à saisir par l'utilisateur) mais, s'il est présent, il doit être sourcé.
+  if (p.packPriceEur !== undefined) {
+    if (typeof p.packPriceEur !== 'number' || !(p.packPriceEur > 0)) errors.push(`${where}: packPriceEur doit être un nombre > 0`);
+    if (!p.sourceUrl || !p.checkedAt) errors.push(`${where}: un prix exige sourceUrl et checkedAt`);
+  }
+  if (p.verified === true && (!p.sourceUrl || !/^\d{4}-\d{2}-\d{2}$/.test(p.checkedAt ?? ''))) {
+    errors.push(`${where}: verified exige sourceUrl et checkedAt (AAAA-MM-JJ)`);
+  }
+  if (p.type === 'capsules' && p.packSize !== p.packWashes) errors.push(`${where}: capsules → packWashes doit égaler packSize`);
   if (typeof p.verified !== 'boolean') errors.push(`${where}: verified doit être un booléen`);
 }
 

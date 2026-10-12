@@ -59,11 +59,24 @@ dose = doseDeRéférence × facteurCharge × facteurSalissure × facteurDureté 
 
 > ⚠️ **Ces coefficients sont des estimations prudentes, pas des données constructeur.** Ils sont regroupés dans [`shared/dosing.ts`](shared/dosing.ts) pour être affinés (idéalement avec les tableaux de dosage officiels des marques). L'app le rappelle à l'utilisateur.
 
-La dureté de l'eau est estimée **par département** ([`shared/water.ts`](shared/water.ts)) ; l'utilisateur peut corriger la catégorie. Pour une précision communale, brancher une source officielle (données ARS) dans `lookupWater`.
+### Dureté de l'eau : par commune, sources officielles
+
+`GET /api/water?postalCode=29260` ([`worker/src/water.ts`](worker/src/water.ts)) :
+
+1. [geo.api.gouv.fr](https://geo.api.gouv.fr) donne les communes du code postal ;
+2. [Hub'Eau « qualité de l'eau potable »](https://hubeau.eaufrance.fr/page/api-qualite-eau-potable) (contrôle sanitaire des ARS) donne le titre hydrotimétrique (paramètre 1345, en °f) : **médiane des 20 dernières mesures des 2 dernières années**, valeurs hors 0–80 °f écartées ;
+3. si plusieurs communes partagent le code postal, l'app propose la plus peuplée et laisse choisir ; l'utilisateur peut toujours corriger la catégorie ;
+4. réponse mise en cache 30 jours dans D1 (`water_cache`) ; en cas de panne ou de commune sans mesure, repli sur l'**estimation départementale** ([`shared/water.ts`](shared/water.ts)), non mise en cache.
+
+Le profil mémorise la commune et l'origine de la valeur (`commune`, `département` ou `manuelle`).
 
 ## Ajouter une lessive
 
-Ajouter un objet dans [`shared/products.json`](shared/products.json) (`id` unique, marque, référence, `type`, `packSize`, `packWashes`, `packPriceEur`), puis `npm run validate:products`. Les 7 références actuelles sont des **valeurs de démonstration** (`verified: false`) : prix et dosages à remplacer par les vraies données. L'utilisateur peut aussi saisir sa propre lessive depuis l'app.
+Ajouter un objet dans [`shared/products.json`](shared/products.json) (`id` unique, marque, référence, `type`, `packSize`, `packWashes`, `sourceUrl`, `checkedAt`, `verified`), puis `npm run validate:products`.
+
+Les 7 références actuelles reprennent **contenance et nombre de lavages** de fiches produits d'enseignes (colonnes `sourceUrl` et `checkedAt`, relevées le 12/10/2026). **Les prix ne sont volontairement pas renseignés** : ils varient selon le magasin et aucune source ouverte fiable n'a été trouvée ; l'utilisateur saisit le prix payé (un `packPriceEur` n'est accepté dans le catalogue qu'avec une source datée). L'utilisateur peut aussi saisir sa propre lessive depuis l'app.
+
+> Les fiches montrent que les tableaux de dosage des marques varient avec la charge, la salissure et la dureté (ex. Le Chat Excellence : de 45 à 140 mL selon le cas). Le modèle de JusteDose reste une estimation générique ; l'étape suivante est de le calibrer produit par produit sur ces tableaux.
 
 ## Déploiement Cloudflare
 
@@ -86,6 +99,31 @@ Le cron (`* * * * *`) est déclaré dans `wrangler.toml` : il envoie les notific
 
 Projet Pages relié au dépôt : racine `/`, commande de build `npm ci && npm run build -w web`, dossier de sortie `web/dist`, variable `VITE_API_URL` = URL du Worker (voir `web/.env.example`).
 
+## Connexion par email (facultative)
+
+Réglages → **Sécuriser mon compte par email** : l'app envoie un **code à 6 chiffres** (valable 10 min, 5 essais, 3 demandes/heure/adresse) à saisir dans l'app. Sur un nouvel appareil : **J'ai déjà un compte** → même procédure, et le profil + l'historique reviennent. On utilise un code plutôt qu'un lien car, sur iPhone, un lien s'ouvre dans Safari et non dans la PWA installée (stockages séparés). Seul le hash du code est stocké ; la réponse ne révèle jamais si une adresse a un compte.
+
+**Activation** — l'envoi passe par [Cloudflare Email Service](https://developers.cloudflare.com/email-service/) et exige **un domaine à vous** validé pour l'envoi (impossible depuis `workers.dev`) :
+
+```bash
+cd worker
+npx wrangler email sending enable votre-domaine.fr
+```
+
+puis dans `worker/wrangler.toml` :
+
+```toml
+[[send_email]]
+name = "EMAIL"
+
+[vars]
+EMAIL_FROM = "connexion@votre-domaine.fr"   # à ajouter aux variables existantes
+```
+
+et `npx wrangler deploy`. En local, `DEV_ECHO_CODE=1` dans `.dev.vars` renvoie le code dans la réponse au lieu d'envoyer un email.
+
+À ajouter en production : une règle de rate limiting Cloudflare sur `POST /api/auth/email/request` (par IP).
+
 ## Notifications — ce qu'il faut savoir
 
 - Les notifications sont **programmées côté serveur** à l'enregistrement du cycle : fin du cycle puis +15 min. Elles fonctionnent donc téléphone verrouillé / app fermée.
@@ -95,7 +133,8 @@ Projet Pages relié au dépôt : racine `/`, commande de build `npm ci && npm ru
 
 ## Limites connues / suites logiques
 
-- **Auth** : compte anonyme uniquement. L'« email magique » n'est pas implémenté (la colonne `users.email` est prête) ; sans lui, un compte ne se récupère pas sur un autre appareil.
+- **Auth** : compte anonyme par défaut ; l'email (facultatif) permet de le retrouver sur un autre appareil — voir ci-dessous. Tant que l'envoi d'emails n'est pas configuré, l'app masque cette fonction.
 - **Scan code-barres** : bouton « placeholder » (message « bientôt »).
 - **Anti-abus** : la création de compte anonyme n'est pas limitée en débit ; ajouter une règle de rate limiting Cloudflare sur `POST /api/auth/anonymous`.
+- **Migrations** : `0002_water_and_login.sql` (cache de dureté, commune du profil, codes de connexion, sessions) à appliquer avant de déployer (`npm run db:migrate:remote`).
 - **Statistiques** : `lessive économisée` agrège des mL ; la poudre est comptée 1 g ≈ 1 mL et une capsule ≈ 25 mL (voir `mlPerUnit`).

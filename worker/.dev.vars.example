@@ -1,3 +1,5 @@
 # Copier en `.dev.vars` (ignoré par git) puis remplir avec : npm run vapid (à la racine)
 VAPID_PUBLIC_KEY=
 VAPID_PRIVATE_KEY=
+# Local uniquement : « 1 » renvoie le code de connexion dans la réponse au lieu d'envoyer un email.
+DEV_ECHO_CODE=

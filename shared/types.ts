@@ -22,10 +22,25 @@ export interface Product {
   packWashes: number;
   /** Prix du paquet en euros. */
   packPriceEur: number;
-  /** false = valeurs de démonstration, à confirmer avec l'emballage. */
+  /** false = valeurs non confirmées (ex. saisie non relue), à vérifier avec l'emballage. */
   verified: boolean;
   /** true = ajoutée par l'utilisateur. */
   custom?: boolean;
+}
+
+/**
+ * Lessive du catalogue. Contenance et nombre de lavages viennent d'une fiche produit
+ * (voir sourceUrl / checkedAt). Le prix, qui varie selon l'enseigne, n'est PAS fourni :
+ * l'utilisateur saisit ce qu'il a payé.
+ */
+export interface CatalogProduct extends Omit<Product, 'packPriceEur'> {
+  /** Prix indicatif, s'il est sourcé. Absent = à saisir par l'utilisateur. */
+  packPriceEur?: number;
+  ean?: string;
+  /** Fiche produit consultée pour contenance et nombre de lavages. */
+  sourceUrl?: string;
+  /** Date de vérification (AAAA-MM-JJ). */
+  checkedAt?: string;
 }
 
 export interface WaterInfo {
@@ -33,6 +48,31 @@ export interface WaterInfo {
   /** Dureté en degrés français (°f). */
   hardnessF: number;
   category: HardnessCategory;
+  /** Commune retenue quand la dureté vient d'une mesure communale. */
+  commune?: string;
+  /** Origine de la valeur : mesure communale, estimation départementale ou choix manuel. */
+  source?: 'commune' | 'department' | 'manual';
+}
+
+/** Dureté mesurée pour une commune (données officielles du contrôle sanitaire). */
+export interface CommuneWater {
+  code: string;
+  name: string;
+  population: number;
+  /** Médiane des mesures récentes (°f), ou null s'il n'y en a pas. */
+  hardnessF: number | null;
+  samples: number;
+  /** Date de la mesure la plus récente (AAAA-MM-JJ). */
+  lastSampleAt: string | null;
+}
+
+/** Réponse de GET /api/water. */
+export interface WaterLookup {
+  postalCode: string;
+  /** Communes du code postal, les plus peuplées d'abord. */
+  communes: CommuneWater[];
+  /** Valeur proposée par défaut (commune la plus peuplée ayant des mesures, sinon département). */
+  suggested: WaterInfo;
 }
 
 export interface DoseInput {

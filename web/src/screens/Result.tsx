@@ -99,7 +99,7 @@ export function Result({
       <Muted className="mt-4">
         Économie calculée par rapport à la dose standard de l'emballage pour un tambour plein. Estimation indicative : en cas de
         doute, suivez les indications de votre lessive.
-        {!product.verified && ' Prix et dosage de cette lessive sont des valeurs de démonstration (modifiables dans Réglages).'}
+        {!product.verified && ' Contenance et nombre de lavages de cette lessive ne sont pas confirmés (modifiables dans Réglages).'}
       </Muted>
 
       <div className="mt-auto pt-6">
